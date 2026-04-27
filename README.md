@@ -83,6 +83,14 @@ nano ~/Library/LaunchAgents/com.baekbot.plist
 완전 무료로 운영 가능합니다.
 모든 처리가 로컬에서 실행됩니다.
 
+## 변경 이력
+
+### 2026-04-24
+- 이전 요청 파일이 재전송되는 버그 수정 (`pending_data` 초기화 누락)
+- yt-dlp 타임아웃 300초로 설정 (Timed out 오류 대응)
+- 실행 경로 수정 (`~/baekbot` → `~/BOT/baekbot`)
+- Claude 요약 기능 제거 (로컬 전사만 유지)
+
 ## 만든 사람
 
 [@baekpro](https://x.com/baekpro)
