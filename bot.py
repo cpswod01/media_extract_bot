@@ -16,6 +16,7 @@ FFMPEG = "/opt/homebrew/bin/ffmpeg"
 WHISPER = "/opt/homebrew/bin/whisper"
 
 WAITING_FILENAME = 1
+WAITING_MODEL = 2
 
 pending_data = {}
 
@@ -37,6 +38,15 @@ async def handle_filename(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response = update.message.text.strip()
     chat_id = update.effective_chat.id
 
+    if response.startswith("http"):
+        pending_data[chat_id] = {"url": response}
+        reply_keyboard = [["기본 파일명", "직접 입력"]]
+        await update.message.reply_text(
+            "파일명 설정할까요?",
+            reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return WAITING_FILENAME
+
     if chat_id not in pending_data:
         await update.message.reply_text("먼저 링크를 보내주세요.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
@@ -53,6 +63,26 @@ async def handle_filename(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         pending_data[chat_id]["filename"] = response
 
+    reply_keyboard = [["tiny", "base", "small"]]
+    await update.message.reply_text(
+        "Whisper 모델을 선택해주세요.\ntiny: 빠름 / base: 보통 / small: 정확",
+        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
+    )
+    return WAITING_MODEL
+
+async def handle_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    response = update.message.text.strip().lower()
+    chat_id = update.effective_chat.id
+
+    if chat_id not in pending_data:
+        await update.message.reply_text("먼저 링크를 보내주세요.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+
+    if response not in ("tiny", "base", "small"):
+        await update.message.reply_text("tiny, base, small 중에 선택해주세요.")
+        return WAITING_MODEL
+
+    pending_data[chat_id]["model"] = response
     await update.message.reply_text("다운로드 시작할게요...", reply_markup=ReplyKeyboardRemove())
     return await process_audio(update, context)
 
@@ -60,6 +90,7 @@ async def process_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     url = pending_data[chat_id]["url"]
     custom_name = pending_data[chat_id].get("filename")
+    model = pending_data[chat_id].get("model", "tiny")
 
     os.makedirs(WORK_DIR, exist_ok=True)
     os.makedirs(TRANSCRIPT_DIR, exist_ok=True)
@@ -85,11 +116,11 @@ async def process_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mp3_path, "-y"
         ], check=True)
 
-        await update.message.reply_text("Whisper가 듣고 있어요...")
+        await update.message.reply_text(f"Whisper({model})가 듣고 있어요...")
         subprocess.run([
             WHISPER, mp3_path,
             "--language", "ko",
-            "--model", "base",
+            "--model", model,
             "--output_format", "txt",
             "--output_dir", TRANSCRIPT_DIR
         ], check=True)
@@ -106,7 +137,6 @@ async def process_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if f.endswith(".txt") and not f.startswith("transcript_") and f != filename
         ])
 
-        transcript = ""
         if whisper_files:
             latest = os.path.join(TRANSCRIPT_DIR, whisper_files[-1])
             with open(latest, "r", encoding="utf-8") as f:
@@ -114,6 +144,7 @@ async def process_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with open(transcript_path, "w", encoding="utf-8") as f:
                 f.write(f"URL: {url}\n")
                 f.write(f"날짜: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"모델: {model}\n")
                 f.write("-" * 50 + "\n\n")
                 f.write(transcript)
             os.remove(latest)
@@ -144,6 +175,7 @@ conv_handler = ConversationHandler(
     entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link)],
     states={
         WAITING_FILENAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_filename)],
+        WAITING_MODEL: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_model)],
     },
     fallbacks=[CommandHandler("cancel", cancel)],
 )
