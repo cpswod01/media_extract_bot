@@ -55,7 +55,6 @@ nano .env
 
 `.env` 파일에 아래 값 입력:
 - `TELEGRAM_TOKEN`: BotFather에서 발급
-- `CLAUDE_API_KEY`: Anthropic Console에서 발급 (선택사항)
 
 ### 5. 실행
 
