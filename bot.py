@@ -8,8 +8,8 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-WORK_DIR = os.path.expanduser("~/baekbot/tmp")
-TRANSCRIPT_DIR = os.path.expanduser("~/baekbot/transcripts")
+WORK_DIR = os.path.expanduser("~/BOT/baekbot/tmp")
+TRANSCRIPT_DIR = os.path.expanduser("~/BOT/baekbot/transcripts")
 
 YT_DLP = "/opt/homebrew/bin/yt-dlp"
 FFMPEG = "/opt/homebrew/bin/ffmpeg"
@@ -36,6 +36,10 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_filename(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response = update.message.text.strip()
     chat_id = update.effective_chat.id
+
+    if chat_id not in pending_data:
+        await update.message.reply_text("먼저 링크를 보내주세요.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
 
     if pending_data[chat_id].get("waiting_name"):
         pending_data[chat_id]["filename"] = response
@@ -68,7 +72,7 @@ async def process_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             YT_DLP, "-x", "--audio-format", "mp3",
             "--cookies-from-browser", "chrome",
             "-o", raw_path + ".%(ext)s", url
-        ], check=True)
+        ], check=True, timeout=300)
 
         await update.message.reply_text("변환 중...")
         raw_files = [f for f in os.listdir(WORK_DIR) if f.startswith("raw_audio")]
