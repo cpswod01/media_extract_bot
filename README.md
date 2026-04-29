@@ -35,8 +35,8 @@ pip3 install openai-whisper
 ### 2. 프로젝트 클론
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/baekbot.git
-cd baekbot
+git clone https://github.com/cpswod01/media_extract_bot.git
+cd media_extract_bot
 ```
 
 ### 3. 가상환경 설정
@@ -56,6 +56,12 @@ nano .env
 
 `.env` 파일에 아래 값 입력:
 - `TELEGRAM_TOKEN`: BotFather에서 발급
+
+선택 설정:
+- `YT_DLP`: yt-dlp 실행 파일 경로 (기본값: `/opt/homebrew/bin/yt-dlp`)
+- `FFMPEG`: ffmpeg 실행 파일 경로 (기본값: `/opt/homebrew/bin/ffmpeg`)
+- `WHISPER`: whisper 실행 파일 경로 (기본값: `/opt/homebrew/bin/whisper`)
+- `COOKIES_FROM_BROWSER`: yt-dlp 브라우저 쿠키 설정 (기본값: `chrome`, 비우면 사용 안 함)
 
 ### 5. 실행
 
@@ -85,6 +91,14 @@ nano ~/Library/LaunchAgents/com.baekbot.plist
 모든 처리가 로컬에서 실행됩니다.
 
 ## 변경 이력
+
+### 2026-04-29
+- 요청별 임시 작업 폴더 사용으로 동시 요청 파일 충돌 방지
+- Whisper 출력 파일을 요청별 폴더에서 직접 읽도록 수정해 이전 전사 파일 재사용 가능성 제거
+- 사용자 입력 파일명 정리 및 중복 파일명 자동 회피
+- 다운로드/변환/전사 명령을 별도 스레드에서 실행해 봇 이벤트 루프 블로킹 완화
+- 시작 시 `TELEGRAM_TOKEN`, `yt-dlp`, `ffmpeg`, `whisper` 실행 가능 여부 검증
+- `/cancel` 실행 시 대기 상태 정리
 
 ### 2026-04-27
 - Whisper 모델 선택 기능 추가 (tiny / base / small)
