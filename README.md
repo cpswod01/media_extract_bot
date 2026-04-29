@@ -62,6 +62,10 @@ nano .env
 - `FFMPEG`: ffmpeg 실행 파일 경로 (기본값: `/opt/homebrew/bin/ffmpeg`)
 - `WHISPER`: whisper 실행 파일 경로 (기본값: `/opt/homebrew/bin/whisper`)
 - `COOKIES_FROM_BROWSER`: yt-dlp 브라우저 쿠키 설정 (기본값: `chrome`, 비우면 사용 안 함)
+- `DOWNLOAD_TIMEOUT`: 다운로드 제한 시간 초 단위 (기본값: `3600`)
+- `TELEGRAM_TIMEOUT`: 텔레그램 일반 요청 제한 시간 초 단위 (기본값: `30`)
+- `TELEGRAM_MEDIA_TIMEOUT`: 텔레그램 파일 전송 제한 시간 초 단위 (기본값: `300`)
+- `TELEGRAM_RETRIES`: 텔레그램 메시지/파일 전송 재시도 횟수 (기본값: `3`)
 
 ### 5. 실행
 
@@ -97,6 +101,9 @@ nano ~/Library/LaunchAgents/com.baekbot.plist
 - Whisper 출력 파일을 요청별 폴더에서 직접 읽도록 수정해 이전 전사 파일 재사용 가능성 제거
 - 사용자 입력 파일명 정리 및 중복 파일명 자동 회피
 - 다운로드/변환/전사 명령을 별도 스레드에서 실행해 봇 이벤트 루프 블로킹 완화
+- 긴 X Space 처리를 위해 다운로드 제한 시간을 3600초로 확대
+- 텔레그램 메시지/파일 전송 타임아웃 시 재시도하도록 수정
+- 시작 시 텔레그램 연결 타임아웃이 발생해도 계속 재시도하도록 수정
 - 시작 시 `TELEGRAM_TOKEN`, `yt-dlp`, `ffmpeg`, `whisper` 실행 가능 여부 검증
 - `/cancel` 실행 시 대기 상태 정리
 

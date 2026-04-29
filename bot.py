@@ -1,14 +1,17 @@
 import os
 import asyncio
+import logging
 import re
 import shutil
 import subprocess
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.error import TelegramError
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, ConversationHandler, CommandHandler
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WORK_DIR = os.path.expanduser("~/BOT/baekbot/tmp")
@@ -18,6 +21,10 @@ YT_DLP = os.getenv("YT_DLP", "/opt/homebrew/bin/yt-dlp")
 FFMPEG = os.getenv("FFMPEG", "/opt/homebrew/bin/ffmpeg")
 WHISPER = os.getenv("WHISPER", "/opt/homebrew/bin/whisper")
 COOKIES_FROM_BROWSER = os.getenv("COOKIES_FROM_BROWSER", "chrome")
+DOWNLOAD_TIMEOUT = int(os.getenv("DOWNLOAD_TIMEOUT", "3600"))
+TELEGRAM_TIMEOUT = int(os.getenv("TELEGRAM_TIMEOUT", "30"))
+TELEGRAM_MEDIA_TIMEOUT = int(os.getenv("TELEGRAM_MEDIA_TIMEOUT", "300"))
+TELEGRAM_RETRIES = int(os.getenv("TELEGRAM_RETRIES", "3"))
 
 WAITING_FILENAME = 1
 WAITING_MODEL = 2
@@ -66,6 +73,42 @@ async def run_command(command, **kwargs):
         **kwargs
     )
 
+async def safe_reply_text(update, text, **kwargs):
+    for attempt in range(TELEGRAM_RETRIES):
+        try:
+            return await update.message.reply_text(
+                text,
+                connect_timeout=TELEGRAM_TIMEOUT,
+                read_timeout=TELEGRAM_TIMEOUT,
+                write_timeout=TELEGRAM_TIMEOUT,
+                pool_timeout=TELEGRAM_TIMEOUT,
+                **kwargs
+            )
+        except TelegramError as e:
+            logging.warning("Telegram message send failed: %s", e)
+            if attempt < TELEGRAM_RETRIES - 1:
+                await asyncio.sleep(2 * (attempt + 1))
+    return None
+
+async def safe_reply_document(update, path, filename, caption):
+    for attempt in range(TELEGRAM_RETRIES):
+        try:
+            with open(path, "rb") as transcript_file:
+                return await update.message.reply_document(
+                    document=transcript_file,
+                    filename=filename,
+                    caption=caption,
+                    connect_timeout=TELEGRAM_TIMEOUT,
+                    read_timeout=TELEGRAM_MEDIA_TIMEOUT,
+                    write_timeout=TELEGRAM_MEDIA_TIMEOUT,
+                    pool_timeout=TELEGRAM_TIMEOUT,
+                )
+        except TelegramError as e:
+            logging.warning("Telegram document send failed: %s", e)
+            if attempt < TELEGRAM_RETRIES - 1:
+                await asyncio.sleep(2 * (attempt + 1))
+    return None
+
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
     if not url.startswith("http"):
@@ -74,7 +117,8 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending_data[update.effective_chat.id] = {"url": url}
 
     reply_keyboard = [["기본 파일명", "직접 입력"]]
-    await update.message.reply_text(
+    await safe_reply_text(
+        update,
         "파일명 설정할까요?",
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
@@ -87,21 +131,22 @@ async def handle_filename(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if response.startswith("http"):
         pending_data[chat_id] = {"url": response}
         reply_keyboard = [["기본 파일명", "직접 입력"]]
-        await update.message.reply_text(
+        await safe_reply_text(
+            update,
             "파일명 설정할까요?",
             reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
         return WAITING_FILENAME
 
     if chat_id not in pending_data:
-        await update.message.reply_text("먼저 링크를 보내주세요.", reply_markup=ReplyKeyboardRemove())
+        await safe_reply_text(update, "먼저 링크를 보내주세요.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
 
     if pending_data[chat_id].get("waiting_name"):
         pending_data[chat_id]["filename"] = response
         pending_data[chat_id]["waiting_name"] = False
     elif response == "직접 입력":
-        await update.message.reply_text("파일명을 입력해주세요:", reply_markup=ReplyKeyboardRemove())
+        await safe_reply_text(update, "파일명을 입력해주세요:", reply_markup=ReplyKeyboardRemove())
         pending_data[chat_id]["waiting_name"] = True
         return WAITING_FILENAME
     elif response == "기본 파일명":
@@ -110,7 +155,8 @@ async def handle_filename(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending_data[chat_id]["filename"] = response
 
     reply_keyboard = [["tiny", "base", "small"]]
-    await update.message.reply_text(
+    await safe_reply_text(
+        update,
         "Whisper 모델을 선택해주세요.\ntiny: 빠름 / base: 보통 / small: 정확",
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
@@ -121,15 +167,15 @@ async def handle_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
     if chat_id not in pending_data:
-        await update.message.reply_text("먼저 링크를 보내주세요.", reply_markup=ReplyKeyboardRemove())
+        await safe_reply_text(update, "먼저 링크를 보내주세요.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
 
     if response not in ("tiny", "base", "small"):
-        await update.message.reply_text("tiny, base, small 중에 선택해주세요.")
+        await safe_reply_text(update, "tiny, base, small 중에 선택해주세요.")
         return WAITING_MODEL
 
     pending_data[chat_id]["model"] = response
-    await update.message.reply_text("다운로드 시작할게요...", reply_markup=ReplyKeyboardRemove())
+    await safe_reply_text(update, "다운로드 시작할게요...", reply_markup=ReplyKeyboardRemove())
     return await process_audio(update, context)
 
 async def process_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -151,16 +197,16 @@ async def process_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     whisper_output_path = os.path.join(request_dir, "summary.txt")
 
     try:
-        await update.message.reply_text("다운로드 중...")
+        await safe_reply_text(update, "다운로드 중...")
         download_command = [
             YT_DLP, "-x", "--audio-format", "mp3",
             "-o", raw_path + ".%(ext)s", url
         ]
         if COOKIES_FROM_BROWSER:
             download_command[4:4] = ["--cookies-from-browser", COOKIES_FROM_BROWSER]
-        await run_command(download_command, timeout=300)
+        await run_command(download_command, timeout=DOWNLOAD_TIMEOUT)
 
-        await update.message.reply_text("변환 중...")
+        await safe_reply_text(update, "변환 중...")
         raw_files = [f for f in os.listdir(request_dir) if f.startswith("raw_audio")]
         if not raw_files:
             raise Exception("다운로드된 파일을 찾을 수 없어요.")
@@ -171,7 +217,7 @@ async def process_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mp3_path, "-y"
         ])
 
-        await update.message.reply_text(f"Whisper({model})가 듣고 있어요...")
+        await safe_reply_text(update, f"Whisper({model})가 듣고 있어요...")
         await run_command([
             WHISPER, mp3_path,
             "--language", "ko",
@@ -200,27 +246,26 @@ async def process_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f.write("-" * 50 + "\n\n")
             f.write(transcript)
 
-        await update.message.reply_text(f"대본 저장 완료!\n파일: {filename}")
-        with open(transcript_path, "rb") as transcript_file:
-            await update.message.reply_document(
-                document=transcript_file,
-                filename=filename,
-                caption="전사 대본 파일이에요."
-            )
+        await safe_reply_text(update, f"대본 저장 완료!\n파일: {filename}")
+        await safe_reply_document(update, transcript_path, filename, "전사 대본 파일이에요.")
 
+    except subprocess.TimeoutExpired:
+        await safe_reply_text(
+            update,
+            f"오류 발생: 제한 시간({DOWNLOAD_TIMEOUT}초)을 넘겼어요. 더 긴 파일이면 DOWNLOAD_TIMEOUT을 늘려주세요."
+        )
     except Exception as e:
-        await update.message.reply_text(f"오류 발생: {str(e)}")
+        await safe_reply_text(update, f"오류 발생: {str(e)}")
 
     finally:
         if os.path.exists(request_dir):
             shutil.rmtree(request_dir)
-
-    pending_data.pop(chat_id, None)
+        pending_data.pop(chat_id, None)
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending_data.pop(update.effective_chat.id, None)
-    await update.message.reply_text("취소했어요.", reply_markup=ReplyKeyboardRemove())
+    await safe_reply_text(update, "취소했어요.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
 conv_handler = ConversationHandler(
@@ -233,7 +278,20 @@ conv_handler = ConversationHandler(
 )
 
 validate_startup()
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+app = (
+    ApplicationBuilder()
+    .token(TELEGRAM_TOKEN)
+    .connect_timeout(TELEGRAM_TIMEOUT)
+    .read_timeout(TELEGRAM_TIMEOUT)
+    .write_timeout(TELEGRAM_TIMEOUT)
+    .pool_timeout(TELEGRAM_TIMEOUT)
+    .media_write_timeout(TELEGRAM_MEDIA_TIMEOUT)
+    .get_updates_connect_timeout(TELEGRAM_TIMEOUT)
+    .get_updates_read_timeout(TELEGRAM_TIMEOUT)
+    .get_updates_write_timeout(TELEGRAM_TIMEOUT)
+    .get_updates_pool_timeout(TELEGRAM_TIMEOUT)
+    .build()
+)
 app.add_handler(conv_handler)
 print("봇 시작! 텔레그램에서 링크를 보내보세요")
-app.run_polling()
+app.run_polling(bootstrap_retries=-1)
